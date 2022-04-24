@@ -127,3 +127,10 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+
+# Ignore tmp folders and private certs.
+tmp
+*.key
+*.pem
+*.crt
