@@ -1,0 +1,90 @@
+# Docker compose file to setup multi-tiered environment for example.
+# construct instance of a frontend proxy, database, and flask server.
+version: "3.8"
+
+# Define subnets for this environment.
+# Proxy will sit on the public facing network and route traffic to the proxy
+# private endpoints.
+networks:
+  network-public:
+    name: cfm-network-public
+    driver: bridge
+    internal: false
+
+  network-private:
+    name: cfm-network-private
+    driver: bridge
+    internal: true
+
+# Define services for this environment.
+services:
+
+  # add Proxy server to the public facing network listening on both port 80 and 443.
+  proxy:
+    container_name: "${CONTAINER_NAME_PROXY:-cfm-proxy}"
+    image: "${IMAGE_NAME_PROXY:-cfm-proxy}"
+    build: ./proxy
+    restart: always
+    networks:
+      - network-public
+      - network-private
+    ports:
+      - 80:80
+      - 443:443
+    depends_on:
+      - cdn
+      - app
+    links:
+      - cdn
+      - app   
+
+  # add CDB server to the private subnet and listening on port 8081.
+  cdn:
+    container_name: "${CONTAINER_NAME_CDN:-cfm-cdn}"
+    image: "${CONTAINER_NAME_CDN:-cfm-cdn}"
+    build: ./cdn
+    restart: always
+    networks:
+      - network-private
+    ports:
+      - "80:80"   
+    volumes:
+      - ./cdn/www:/usr/share/nginx/html:ro
+
+  # add app to the private subnet and listening on port 8080.
+  app:
+    container_name: "${CONTAINER_NAME_APP:-cfm-app}"
+    image: "${CONTAINER_NAME_APP:-cfm-app}"
+    build: ./app
+    restart: always
+    networks:
+      - network-private
+    ports:
+      - "80:80"
+    depends_on:
+      - mongo
+    links:
+      - mongo
+    environment:
+      - MONGO_INITDB_HOST=${CONTAINER_NAME_MONGODB:-cfm-mongo}
+      - MONGO_INITDB_ROOT_USERNAME=${POSTGRES_USER:-mongodb}
+      - MONGO_INITDB_ROOT_PASSWORD=${POSTGRES_PASSWORD:-mongodb-password}
+      - MONGO_INITDB_DATABASE=${POSTGRES_DB:-ExampleApp}   
+    volumes:
+      - ./app/src:/app:ro
+
+  # add datbase to private subnet and listening on port 5432.
+  mongo:
+    image: mongo:latest
+    container_name: "${CONTAINER_NAME_MONGODB:-cfm-mongo}"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:-mongodb}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:-mongodb-password}
+      - MONGO_INITDB_DATABASE=${MONGO_INITDB_DATABASE:-ExampleApp}
+    networks:
+      - network-private
+    ports:
+      - "27017:27017"
+    restart: always           
+    volumes:
+      - ./mongodb/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
